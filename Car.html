@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset=utf-8>
+    <title>CarGame</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%
+        }
+
+        #world {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: linear-gradient(#bae4c3, #f7d9aa);
+        }
+    </style>
+</head>
+
+<body>
+<script src="js/three.js"></script>
+<script src="js/controls/TrackballControls.js"></script>
+<script src="js/loaders/GLTFLoader.js"></script>
+<script src="js/OrbitControls.js"></script>
+<div id="world">
+
+</div>
+
+<script>
+    // Our Javascript will go here.
+    var Colors = {
+        red: 0xf25346,
+        white: 0xd8d0d1,
+        brown: 0x59332e,
+        pink: 0xF5986E,
+        brownDark: 0x23190f,
+        blue: 0x68c3c0,
+    };
+
+    var musicFlag = true;
+
+    let scene, camera, fieldOfView, aspectRatio, nearPlane, farPlane, HEIGHT, WIDTH, renderer, backgroundSound,
+        container, controls, axes, flakeCount, flakeGeometry, flakeMaterial, snow, flakeMesh, flakeArray, audioListener;
+
+    window.addEventListener('load', init, false);
+
+    function init() {
+        // set up the scene, the camera and the renderer
+        createScene();
+        // add the lights
+        createLights();
+        // add the objects
+        createLand();
+        createSky();
+        createCar();
+        createPlanet();
+        // start a loop that will update the objects' positions
+        // and render the scene on each frame
+        document.addEventListener('mousemove', handleMousemove, false);
+        loop();
+    }
+
+    function createScene() {
+        // Get the width and the height of the screen,
+        // use them to set up the aspect ratio of the camera
+        // and the size of the renderer.
+        HEIGHT = window.innerHeight;
+        WIDTH = window.innerWidth;
+        // Create the scene
+        scene = new THREE.Scene();
+        // Add a fog effect to the scene; same color as the
+        // background color used in the style sheet
+        scene.fog = new THREE.Fog(0xF5986E, 100, 950);
+        // Create the camera
+        aspectRatio = WIDTH / HEIGHT;
+        fieldOfView = 100;
+        nearPlane = 1;
+        farPlane = 10000;
+        camera = new THREE.PerspectiveCamera(
+            fieldOfView,
+            aspectRatio,
+            nearPlane,
+            farPlane
+        );
+        // Set the position of the camera
+        camera.position.x = 20;
+        camera.position.z = 450;
+        camera.position.y = 300;
+        camera.lookAt(scene);
+        //camera.rotateX(-Math.PI * 0.8);
+        // Create the renderer
+        renderer = new THREE.WebGLRenderer({
+            // Allow transparency to show the gradient background
+            // we defined in the CSS
+            alpha: true,
+            // Activate the anti-aliasing; this is less performant,
+            // but, as our project is low-poly based, it should be fine :)
+            antialias: true
+        });
+        // Define the size of the renderer; in this case,
+        // it will fill the entire screen
+        renderer.setSize(WIDTH, HEIGHT);
+        // Enable shadow rendering
+        renderer.shadowMap.enabled = true;
+        // create axes
+        axes = new THREE.AxesHelper(1500);
+        scene.add(axes);
+        // Add the DOM element of the renderer to the
+        // container we created in the HTML
+        container = document.getElementById('world');
+        container.appendChild(renderer.domElement);
+        controls = new THREE.TrackballControls(camera);
+
+        flakeCount = 9000;
+
+        //<----------------------------snow---------------------------->
+        flakeGeometry = new THREE.TetrahedronGeometry(1.5); // radius
+        flakeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, transparent: true, flatShading: true});
+
+        //<----------------------------rain---------------------------->
+        //flakeGeometry = new THREE.SphereGeometry(1.5);
+        //color: 0xbff4f7, 0xa1c6cc, 0xd4f1f9, 0x7ba6b6, 0xd5dfe3
+        //flakeMaterial = new THREE.MeshPhongMaterial({color: 0xA1C6CC, transparent: true, opacity: 0.5, fog: true, depthWrite: false});
+
+        snow = new THREE.Group();
+        for (let i = 0; i < flakeCount; i++) {
+            flakeMesh = new THREE.Mesh(flakeGeometry, flakeMaterial);
+            flakeMesh.position.set(
+                (Math.random() - 0.5) * 2000,
+                (Math.random() - 0.5) * 4000,
+                (Math.random() - 0.5) * 2000
+            );
+            snow.add(flakeMesh);
+        }
+        scene.add(snow);
+        flakeArray = snow.children;
+
+        // Listen to the screen: if the user resizes it
+        // we have to update the camera and the renderer size
+        window.addEventListener('resize', handleWindowResize, false);
+        window.addEventListener('click', handlePlayAudio, false);
+    }
+
+    function handlePlayAudio(){
+        if(musicFlag){
+            // instantiate a listener
+            audioListener = new THREE.AudioListener();
+            // add the listener to the camera
+            camera.add(audioListener);
+            // instantiate a loader
+            const audioLoader = new THREE.AudioLoader();
+            // instantiate audio object
+            backgroundSound = new THREE.Audio(audioListener);
+            // load a resource
+            audioLoader.load("./music/Fall.mp3", function (audioBuffer) {//callback
+                    // set the audio object buffer to the loaded object
+                    backgroundSound.setBuffer(audioBuffer);
+                    backgroundSound.setLoop(true);
+                    backgroundSound.setVolume(0.4);
+                    backgroundSound.play();
+                },
+            );
+            musicFlag = false;
+        }
+    }
+
+    function handleWindowResize() {
+        // update height and width of the renderer and the camera
+        HEIGHT = window.innerHeight;
+        WIDTH = window.innerWidth;
+        renderer.setSize(WIDTH, HEIGHT);
+        camera.aspect = WIDTH / HEIGHT;
+        camera.updateProjectionMatrix();
+    }
+
+    var hemisphereLight, shadowLight, ambientLight;
+
+    function createLights() {
+        // A hemisphere light is a gradient colored light;
+        // the first parameter is the sky color, the second parameter is the ground color,
+        // the third parameter is the intensity of the light
+        hemisphereLight = new THREE.HemisphereLight(0xaaaaaa, 0x000000, .9)
+        // A directional light shines from a specific direction.
+        // It acts like the sun, that means that all the rays produced are parallel.
+        shadowLight = new THREE.DirectionalLight(0xffffff, .7);
+        //ambientLight = new THREE.AmbientLight(0x404040);
+        ambientLight = new THREE.AmbientLight(0xffffff,.5);
+        // Set the direction of the light
+        shadowLight.position.set(150, 350, 350);
+        // Allow shadow casting
+        shadowLight.castShadow = true;
+        // define the visible area of the projected shadow
+        shadowLight.shadow.camera.left = -700;
+        shadowLight.shadow.camera.right = 700;
+        shadowLight.shadow.camera.top = 400;
+        shadowLight.shadow.camera.bottom = -400;
+        shadowLight.shadow.camera.near = 1;
+        shadowLight.shadow.camera.far = 1000;
+        // define the resolution of the shadow; the higher, the better,
+        // but also the more expensive and less performant
+        shadowLight.shadow.mapSize.width = 2048;
+        shadowLight.shadow.mapSize.height = 2048;
+        // to activate the lights, just add them to the scene
+        scene.add(hemisphereLight);
+        scene.add(ambientLight);
+        scene.add(shadowLight);
+        //scene.add(new THREE.AmbientLight(0x666666));
+    }
+
+    /**
+     * land constructor
+     */
+    Land = function () {
+        // radius top, radius bottom, height, number of segments on the radius, number of segments vertically
+        var geom = new THREE.CylinderGeometry(590, 590, 1500, 40, 10);
+        // rotate the geometry on the z axis
+        geom.applyMatrix(new THREE.Matrix4().makeRotationZ(-Math.PI / 2));
+        //testing waves
+        geom.mergeVertices();
+        var l = geom.vertices.length;
+        this.waves = [];
+        for (var i = 0; i < l; i++) {
+            var v = geom.vertices[i];
+            this.waves.push({
+                y: v.y,
+                x: v.x,
+                z: v.z,
+                ang: Math.random() * Math.PI * 2,
+                amp: 5 + Math.random() * 15,
+                speed: 0.016 + Math.random() * 0.032
+            });
+        }
+        // create the material
+        var mat = new THREE.MeshPhongMaterial({
+            color: Colors.red,
+            transparent: false,
+            opacity: .6,
+            shading: THREE.FlatShading,
+        });
+        // To create an object in Three.js, we have to create a mesh
+        // which is a combination of a geometry and some material
+        this.mesh = new THREE.Mesh(geom, mat);
+        // Allow the land to receive shadows
+        this.mesh.receiveShadow = true;
+    }
+
+    Land.prototype.moveWaves = function () {
+        var verts = this.mesh.geometry.vertices;
+        var l = verts.length;
+        for (var i = 0; i < l; i++) {
+            var v = verts[i];
+            var vprops = this.waves[i];
+            v.z = vprops.z + Math.cos(vprops.ang) * vprops.amp;
+            v.y = vprops.y + Math.sin(vprops.ang) * vprops.amp;
+            vprops.ang += vprops.speed;
+        }
+        this.mesh.geometry.verticesNeedUpdate = true;
+        land.mesh.rotation.x += .005;
+    }
+
+    /**
+     * Instantiate the land and add it to the scene:
+     **/
+    var land;
+    function createLand() {
+        land = new Land();
+        // push it a little bit at the bottom of the scene
+        land.mesh.position.y = -600;
+        // add the mesh of the land to the scene
+        scene.add(land.mesh);
+    }
+
+    /**
+     * cloud constructor
+     * @constructor
+     */
+    Cloud = function () {
+        // Create an empty container that will hold the different parts of the cloud
+        this.mesh = new THREE.Object3D();
+        // create a cube geometry;
+        // this shape will be duplicated to create the cloud
+        var geom = new THREE.BoxGeometry(20, 20, 20);
+        // create a material; a simple white material will do the trick
+        var mat = new THREE.MeshPhongMaterial({
+            color: Colors.white,
+            transparent: true,
+            opacity: .6,
+            shading: THREE.SmoothShading,
+        });
+        // duplicate the geometry a random number of times
+        var nBlocs = 3 + Math.floor(Math.random() * 3);
+        for (var i = 0; i < nBlocs; i++) {
+            // create the mesh by cloning the geometry
+            var m = new THREE.Mesh(geom, mat);
+            // set the position and the rotation of each cube randomly
+            m.position.z = i * 15;
+            m.position.y = Math.random() * 10;
+            m.position.x = Math.random() * 10;
+            m.rotation.x = Math.random() * Math.PI * 2;
+            m.rotation.y = Math.random() * Math.PI * 2;
+            // set the size of the cube randomly
+            var s = .1 + Math.random() * .9;
+            m.scale.set(s, s, s);
+            // allow each cube to cast and to receive shadows
+            m.castShadow = true;
+            m.receiveShadow = true;
+            // add the cube to the container we first created
+            this.mesh.add(m);
+        }
+    }
+
+    /**
+     * Sky constructor
+      */
+    Sky = function () {
+        // Create an empty container
+        this.mesh = new THREE.Object3D();
+        // choose a number of clouds to be scattered in the sky
+        this.nClouds = 30;
+        // To distribute the clouds consistently,
+        // we need to place them according to a uniform angle
+        var stepAngle = Math.PI * 2 / this.nClouds;
+        // create the clouds
+        for (var i = 0; i < this.nClouds; i++) {
+            var c = new Cloud();
+            // set the rotation and the position of each cloud;
+            // for that we use a bit of trigonometry
+            var a = stepAngle * i; // this is the final angle of the cloud
+            var h = 750 + Math.random() * 200; // this is the distance between the center of the axis and the cloud itself
+            // Trigonometry!!! I hope you remember what you've learned in Math :)
+            // in case you don't:
+            // we are simply converting polar coordinates (angle, distance) into Cartesian coordinates (x, y)
+            c.mesh.position.y = Math.sin(a) * h;
+            c.mesh.position.z = Math.cos(a) * h;
+            // rotate the cloud according to its position
+            c.mesh.rotation.x = a + Math.PI / 2;
+            // for a better result, we position the clouds
+            // at random depths inside of the scene
+            c.mesh.position.x = -400 + Math.random() * 1000;
+            // we also set a random scale for each cloud
+            var s = 1 + Math.random() * 2;
+            c.mesh.scale.set(s, s, s);
+            // do not forget to add the mesh of each cloud in the scene
+            this.mesh.add(c.mesh);
+        }
+    }
+
+    // Now we instantiate the sky and push its center a bit
+    // towards the bottom of the screen
+    var sky;
+    function createSky() {
+        sky = new Sky();
+        sky.mesh.position.y = -800;
+        scene.add(sky.mesh);
+    }
+
+    var mixer;
+
+
+    var Car = function () {
+        var loader = new THREE.GLTFLoader();
+        var c =this;
+        loader.load('models/car/scene.gltf', function (gltf) {
+            gltf.scene.scale.set(.4, .4, .4);
+            gltf.scene.position.z = 0;
+            gltf.scene.position.y = 0;
+            gltf.scene.rotation.y = 3.14/2;
+            scene.add(gltf.scene);
+            //console.log('gltf', gltf);
+            mixer = new THREE.AnimationMixer(gltf.scene);
+            var clips = gltf.animations;
+            var clip = THREE.AnimationClip.findByName(clips, 'Car engine');
+            var action = mixer.clipAction(clip);
+            c.scene = gltf.scene;
+            action.play()
+        }, undefined, function (error) {
+            console.error(error);
+        });
+    }
+
+    var car;
+    function createCar() {
+        car = new Car();
+    }
+    function normalize(v, vmin, vmax, tmin, tmax) {
+        var nv = Math.max(Math.min(v, vmax), vmin);
+        var dv = vmax - vmin;
+        var pc = (nv - vmin) / dv;
+        var dt = tmax - tmin;
+        return tmin + (pc * dt);
+    }
+
+    var mousePos = {x: 0, y: 0}
+
+    function handleMousemove(event) {
+        let normalizedX = -1 + (event.clientX / WIDTH) * 2;
+        let normalizedY = 1 - (event.clientY / HEIGHT) * 2;
+        mousePos = {x: normalizedX, y: normalizedY};
+    }
+
+    function updateCar() {
+        if (car.scene) {
+            car.scene.position.x = normalize(mousePos.x, -1, 1, -700, 700);
+        }
+    }
+
+    var Planet = function () {
+        var loader = new THREE.GLTFLoader();
+        var c = this;
+        loader.load('models/planet/scene.gltf', function (gltf) {
+            gltf.scene.scale.set(20., 20., 20.);
+            gltf.scene.position.set(-500,100,-100);
+            gltf.scene.rotation.set(0,0,0);
+            scene.add(gltf.scene);
+            c.scene = gltf.scene;
+            //console.log('gltf', gltf);
+        }, undefined, function (error) {
+            console.error(error);
+        });
+    }
+
+    var planet;
+    function createPlanet() {
+        planet = new Planet();
+    }
+    var au = 0;
+    function updatePlanet(){
+        if(planet.scene){
+            planet.scene.position.z = 1100*Math.cos(au);
+            planet.scene.position.y = -550+1100*Math.sin(au);
+            planet.scene.rotation.y += 0.01;
+        }
+    }
+
+    var clock = new THREE.Clock();
+
+
+    function loop() {
+        var delta = clock.getDelta();
+        if (mixer) mixer.update(delta);
+        // Rotate the propeller, the sea and the sky
+        land.mesh.rotation.x += .01;
+        sky.mesh.rotation.x += .01;
+
+        updateCar();
+        au += 0.002;
+        updatePlanet();
+
+        land.moveWaves();
+
+        for (i = 0; i < flakeArray.length / 2; i++) {
+            flakeArray[i].rotation.y += 0.01;
+            flakeArray[i].rotation.x += 0.02;
+            flakeArray[i].rotation.z += 0.03;
+            flakeArray[i].position.y -= 0.9;
+            if (flakeArray[i].position.y < 0) {
+                flakeArray[i].position.y += 2000;
+            }
+        }
+        for (i = flakeArray.length / 2; i < flakeArray.length; i++) {
+            flakeArray[i].rotation.y -= 0.03;
+            flakeArray[i].rotation.x -= 0.03;
+            flakeArray[i].rotation.z -= 0.02;
+            flakeArray[i].position.y -= 0.8;
+            if (flakeArray[i].position.y < -0) {
+                flakeArray[i].position.y += 2000;
+            }
+            snow.rotation.y -= 0.0000002;
+        }
+
+        controls.update();
+        // render the scene
+        renderer.render(scene, camera);
+        // call the loop function again
+        requestAnimationFrame(loop);
+    }
+</script>
+</body>
+
+</html>
